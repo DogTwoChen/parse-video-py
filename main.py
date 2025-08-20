@@ -58,7 +58,7 @@ def get_auth_dependency() -> list[Depends]:
     return [Depends(verify_credentials)]  # 返回封装好的 Depends
 
 
-@app.get("/api/download_proxy")
+@app.get("/download_proxy")
 async def download_proxy(url: str):
     """
     代理下载第三方平台的资源，解决前端跨域问题
