@@ -66,21 +66,26 @@ async def download_proxy(url: str):
     if not url:
         raise HTTPException(status_code=400, detail="URL parameter is required")
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(follow_redirects=True) as client:  # ✅ 自动跟随 302
         try:
-            # 使用流式请求获取远程内容
-            # 伪装成浏览器，防止被目标网站屏蔽
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"}
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/58.0.3029.110 Safari/537.36"
+                )
+            }
             req = client.build_request("GET", url, headers=headers)
             resp = await client.send(req, stream=True)
-            resp.raise_for_status()  # 如果请求失败则抛出异常
+            resp.raise_for_status()
 
-            # 将远程内容以流式响应的形式返回给客户端
+            # 只转发必要的响应头，避免转发 hop-by-hop headers（比如 transfer-encoding）
+            content_type = resp.headers.get("content-type", "application/octet-stream")
             return StreamingResponse(
                 resp.aiter_bytes(),
-                headers=resp.headers,
-                status_code=resp.status_code,
-                media_type=resp.headers.get("Content-Type"),
+                media_type=content_type,
+                headers={"Content-Disposition": "inline"},
+                status_code=200
             )
         except httpx.RequestError as e:
             raise HTTPException(status_code=500, detail=f"Failed to fetch resource: {e}")
