@@ -3,9 +3,10 @@ import re
 import secrets
 from parser import VideoSource, parse_video_id, parse_video_share_url
 
+import httpx
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,6 +58,36 @@ def get_auth_dependency() -> list[Depends]:
     return [Depends(verify_credentials)]  # 返回封装好的 Depends
 
 
+@app.get("/api/download_proxy")
+async def download_proxy(url: str):
+    """
+    代理下载第三方平台的资源，解决前端跨域问题
+    """
+    if not url:
+        raise HTTPException(status_code=400, detail="URL parameter is required")
+
+    async with httpx.AsyncClient() as client:
+        try:
+            # 使用流式请求获取远程内容
+            # 伪装成浏览器，防止被目标网站屏蔽
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"}
+            req = client.build_request("GET", url, headers=headers)
+            resp = await client.send(req, stream=True)
+            resp.raise_for_status()  # 如果请求失败则抛出异常
+
+            # 将远程内容以流式响应的形式返回给客户端
+            return StreamingResponse(
+                resp.aiter_bytes(),
+                headers=resp.headers,
+                status_code=resp.status_code,
+                media_type=resp.headers.get("Content-Type"),
+            )
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to fetch resource: {e}")
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=str(e))
+
+
 @app.get("/", response_class=HTMLResponse, dependencies=get_auth_dependency())
 async def read_item(request: Request):
     return templates.TemplateResponse(
@@ -70,7 +101,7 @@ async def read_item(request: Request):
 
 @app.get("/video/share/url/parse", dependencies=get_auth_dependency())
 async def share_url_parse(url: str):
-    url_reg = re.compile(r"http[s]?:\/\/[\w.-]+[\w\/-]*[\w.-]*\??[\w=&:\-\+\%]*[/]*")
+    url_reg = re.compile(r"http[s]?://[\w.-]+[\w\/-]*[\w.-]*\??[\w=&:\-\+\%]*[/]*")
     video_share_url = url_reg.search(url).group()
 
     try:
