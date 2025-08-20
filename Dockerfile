@@ -11,6 +11,8 @@ COPY ./utils /app/utils
 COPY ./requirements.txt /app/
 COPY ./main.py /app/
 
+# 切换国内 pip 源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 安装 Python 应用程序所需的依赖包
 RUN pip install --no-cache-dir -r requirements.txt
