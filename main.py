@@ -57,16 +57,15 @@ def get_auth_dependency() -> list[Depends]:
 
     return [Depends(verify_credentials)]  # 返回封装好的 Depends
 
-
-@app.get("/download_proxy")
-async def download_proxy(url: str):
-    """
-    代理下载第三方平台的资源，解决前端跨域问题
-    """
-    if not url:
-        raise HTTPException(status_code=400, detail="URL parameter is required")
-
-    async with httpx.AsyncClient(follow_redirects=True) as client:  # ✅ 自动跟随 302
+ @app.get("/download_proxy")
+    async def download_proxy(url: str):
+        """
+        代理下载第三方平台的资源，解决前端跨域问题
+        """
+        if not url:
+            raise HTTPException(status_code=400, detail="URL parameter is required")
+            
+        async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
             headers = {
                 "User-Agent": (
@@ -79,19 +78,28 @@ async def download_proxy(url: str):
             resp = await client.send(req, stream=True)
             resp.raise_for_status()
 
-            # 只转发必要的响应头，避免转发 hop-by-hop headers（比如 transfer-encoding）
+            # 从原始响应中获取关键的响应头
             content_type = resp.headers.get("content-type", "application/octet-stream")
+            content_length = resp.headers.get("content-length")
+            
+            # 准备要转发给客户端的响应头
+            response_headers = {
+                "Content-Disposition": "inline",
+                "Content-Type": content_type,
+            }
+            # 如果原始响应中有 Content-Length，我们必须转发它！
+            if content_length:
+                response_headers["Content-Length"] = content_length
+                
             return StreamingResponse(
                 resp.aiter_bytes(),
-                media_type=content_type,
-                headers={"Content-Disposition": "inline"},
-                status_code=200
+                status_code=resp.status_code,  # 转发原始的状态码
+                headers=response_headers
             )
         except httpx.RequestError as e:
             raise HTTPException(status_code=500, detail=f"Failed to fetch resource: {e}")
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=e.response.status_code, detail=str(e))
-
 
 @app.get("/", response_class=HTMLResponse, dependencies=get_auth_dependency())
 async def read_item(request: Request):
