@@ -1,7 +1,7 @@
 import os
 import re
 import secrets
-from parser import VideoSource, parse_video_id, parse_video_share_url, Query
+from parser import VideoSource, parse_video_id, parse_video_share_url
 
 import httpx
 import uvicorn
