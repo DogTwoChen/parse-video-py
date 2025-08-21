@@ -83,7 +83,7 @@ def get_auth_dependency() -> list[Depends]:
 
 #             # 使用底层二进制流，避免 transfer closed
 #             return StreamingResponse(
-#                 resp.aiter_raw(),
+#                 resp.aiter_bytes(),
 #                 status_code=resp.status_code,
 #                 media_type=resp.headers.get("content-type", "application/octet-stream"),
 #                 headers={
@@ -96,46 +96,23 @@ def get_auth_dependency() -> list[Depends]:
 #             raise HTTPException(status_code=500, detail=f"资源获取失败: {e}")
 #         except httpx.HTTPStatusError as e:
 #             raise HTTPException(status_code=e.response.status_code, detail=str(e))
-            
-@app.get("/api/download_proxy")
-async def download_proxy(url: str = Query(..., description="原始资源 URL")):
-    """
-    图片/视频代理接口，解决跨域问题
-    - url: 原始图片或视频链接（可以带 query string）
-    """
-    if not url:
-        raise HTTPException(status_code=400, detail="URL 参数必填")
 
-    # 常用反爬 UA + Referer
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/119.0.0.0 Safari/537.36",
-        "Referer": "https://www.xiaohongshu.com/"
-    }
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-        try:
-            # 发起 GET 请求
-            resp = await client.get(url, headers=headers)
-            resp.raise_for_status()
-
-            # 使用底层二进制流，避免 transfer closed
-            return StreamingResponse(
-                resp.aiter_raw(),
-                status_code=resp.status_code,
-                media_type=resp.headers.get("content-type", "application/octet-stream"),
-                headers={
-                    "Content-Length": resp.headers.get("content-length", "0"),
-                    "Content-Disposition": "inline"
-                }
-            )
-
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=500, detail=f"资源获取失败: {e}")
-        except httpx.HTTPStatusError as e:
-            raise HTTPException(status_code=e.response.status_code, detail=str(e))
-
+@app.get("/download_proxy")
+async def download_proxy(url: str):
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        resp = await client.get(url)
+        # 直接把远程响应转发回去，不自己抛异常
+        return StreamingResponse(
+            resp.aiter_bytes(),
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type", "application/octet-stream"),
+            headers={
+                "Content-Disposition": "inline",
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
+    
 
 
 @app.get("/", response_class=HTMLResponse, dependencies=get_auth_dependency())
