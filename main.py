@@ -59,51 +59,44 @@ def get_auth_dependency() -> list[Depends]:
 
 
 @app.get("/download_proxy")
-async def download_proxy(url: str):
+async def download_proxy(url: str = Query(..., description="原始资源 URL")):
     """
-    代理下载第三方平台的资源，解决前端跨域问题
+    图片/视频代理接口，解决跨域问题
+    - url: 原始图片或视频链接（可以带 query string）
     """
     if not url:
-        raise HTTPException(status_code=400, detail="URL parameter is required")
+        raise HTTPException(status_code=400, detail="URL 参数必填")
 
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    # 常用反爬 UA + Referer
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/119.0.0.0 Safari/537.36",
+        "Referer": "https://www.xiaohongshu.com/"
+    }
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
         try:
-            headers = {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/58.0.3029.110 Safari/537.36"
-                )
-            }
-            req = client.build_request("GET", url, headers=headers)
-            resp = await client.send(req, stream=True)
+            # 发起 GET 请求
+            resp = await client.get(url, headers=headers)
             resp.raise_for_status()
 
-            # 从原始响应中获取关键的响应头
-            content_type = resp.headers.get("content-type", "application/octet-stream")
-            content_length = resp.headers.get("content-length")
-
-            # 准备要转发给客户端的响应头
-            response_headers = {
-                "Content-Disposition": "inline",
-                "Content-Type": content_type,
-            }
-            # 如果原始响应中有 Content-Length，我们必须转发它！
-            if content_length:
-                response_headers["Content-Length"] = content_length
-
+            # 使用底层二进制流，避免 transfer closed
             return StreamingResponse(
-                resp.aiter_bytes(),
-                status_code=resp.status_code,  # 转发原始的状态码
-                headers=response_headers,
+                resp.aiter_raw(),
+                status_code=resp.status_code,
+                media_type=resp.headers.get("content-type", "application/octet-stream"),
+                headers={
+                    "Content-Length": resp.headers.get("content-length", "0"),
+                    "Content-Disposition": "inline"
+                }
             )
+
         except httpx.RequestError as e:
-            raise HTTPException(
-                status_code=500, detail=f"Failed to fetch resource: {e}"
-            )
+            raise HTTPException(status_code=500, detail=f"资源获取失败: {e}")
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=e.response.status_code, detail=str(e))
-
+            
 
 @app.get("/", response_class=HTMLResponse, dependencies=get_auth_dependency())
 async def read_item(request: Request):
